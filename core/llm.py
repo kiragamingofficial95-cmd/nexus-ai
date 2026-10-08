@@ -67,28 +67,48 @@ class LLMClient:
         return data["choices"][0]["message"]["content"]
 
     def _zen_responses(self, messages, model, max_tokens, timeout):
-        """OpenCode Zen Responses API: POST {base}/responses {model, input}."""
+        """OpenCode Zen Responses API: POST {base}/responses {model, instructions, input}."""
         base = self.base_url.strip().rstrip("/")
         for suffix in ("/chat/completions", "/responses", "/messages"):
             if base.endswith(suffix):
                 base = base[: -len(suffix)].rstrip("/")
         url = base + "/responses"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        # Responses API accepts OpenAI-style input array
-        inp = [{"role": m["role"], "content": m["content"]} for m in messages]
-        payload = {"model": model, "input": inp, "max_output_tokens": max_tokens}
+        # Responses API: system -> instructions; others -> typed input parts
+        instructions = ""
+        convo = []
+        for m in messages:
+            if m["role"] == "system":
+                instructions = m["content"]
+            elif m["role"] in ("user", "assistant", "developer"):
+                role = "assistant" if m["role"] == "assistant" else m["role"]
+                convo.append({"role": role,
+                              "content": [{"type": "input_text", "text": m["content"][:8000]}]})
+        payload = {"model": model, "input": convo, "store": False,
+                   "max_output_tokens": max_tokens}
+        if instructions:
+            payload["instructions"] = instructions[:4000]
         r = requests.post(url, headers=headers, json=payload, timeout=timeout)
-        r.raise_for_status()
+        try:
+            r.raise_for_status()
+        except Exception as e:
+            body = (r.text or "")[:800]
+            raise RuntimeError(f"Zen {r.status_code}: {body}") from e
         data = r.json()
-        # robust parse: output_text | output[].content[].text | choices
+        # robust parse: output_text | output[].content[] ({type:output_text, text:str|{...}})
         if isinstance(data, dict) and data.get("output_text"):
             return data["output_text"]
         try:
             parts = []
             for item in data.get("output", []):
-                for c in item.get("content", []):
-                    t = c.get("text") or c.get("output_text")
-                    if t:
+                for c in (item.get("content") or []):
+                    if not isinstance(c, dict):
+                        continue
+                    t = c.get("text")
+                    if isinstance(t, dict):
+                        t = t.get("value") or t.get("text")
+                    t = t or c.get("output_text")
+                    if isinstance(t, str) and t:
                         parts.append(t)
             if parts:
                 return "\n".join(parts)
