@@ -20,8 +20,8 @@ HISTORY_FILE = Path("history.json")
 DEFAULTS = {
     "mode": "free",
     "api_key": "",
-    "base_url": "https://openrouter.ai/api/v1",
-    "model": "meta/muse-spark-1.3",
+    "base_url": "https://opencode.ai/zen/v1",
+    "model": "muse-spark-1.3-contributor-free",
     "theme": "dark",
 }
 
@@ -328,15 +328,33 @@ class App(ctk.CTk):
         self.model_e = ctk.CTkEntry(f, placeholder_text="Model id")
         self.model_e.pack(fill="x", pady=6)
         self.model_e.insert(0, s.get("model", DEFAULTS["model"]))
+        presets = ctk.CTkFrame(f, fg_color="transparent")
+        presets.pack(fill="x", pady=4)
+        ctk.CTkButton(presets, text="Use Zen Free", width=130, fg_color="#16203a",
+                      border_color=ACCENT2, border_width=1,
+                      command=self.preset_zen).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(presets, text="Use OpenRouter", width=130, fg_color="#16203a",
+                      border_color=ACCENT, border_width=1,
+                      command=self.preset_router).pack(side="left")
         ctk.CTkButton(f, text="Save", fg_color=ACCENT, command=self.save_cfg).pack(anchor="w", pady=10)
         ctk.CTkLabel(f, justify="left", text_color="#8b93b8", font=("Segoe UI", 11), text=(
-            "FREE mode: no signup, rate-limited shared pool — perfect for demo/SaaS trial.\n"
-            "For true Muse Spark 1.3:\n"
-            " 1) Get a key from OpenRouter or OpenCode Zen (free tier includes muse-spark-1.3)\n"
-            " 2) Base URL: https://openrouter.ai/api/v1  (or your OpenCode endpoint)\n"
-            " 3) Model: meta/muse-spark-1.3  or  opencode/muse-spark-1.3-contributor-free\n"
-            "Honest note: no app can legally bundle unlimited free Claude/Muse — BYOK is the production pattern."
+            "FREE mode: no signup, rate-limited shared pool.\n"
+            "Zen (recommended for Muse Spark 1.3 Contributor Free):\n"
+            " Base https://opencode.ai/zen/v1   Model muse-spark-1.3-contributor-free\n"
+            " Paste your oc_sk_... key from https://opencode.ai/auth → Save.\n"
+            " Key stays in local settings.json only (gitignored) — NEVER commit or bake into a public exe.\n"
+            "OpenRouter alt: Base https://openrouter.ai/api/v1  Model meta/muse-spark-1.3"
         )).pack(anchor="w", pady=6)
+
+    def preset_zen(self):
+        self.mode_var.set("custom")
+        self.url_e.delete(0, "end"); self.url_e.insert(0, "https://opencode.ai/zen/v1")
+        self.model_e.delete(0, "end"); self.model_e.insert(0, "muse-spark-1.3-contributor-free")
+
+    def preset_router(self):
+        self.mode_var.set("custom")
+        self.url_e.delete(0, "end"); self.url_e.insert(0, "https://openrouter.ai/api/v1")
+        self.model_e.delete(0, "end"); self.model_e.insert(0, "meta/muse-spark-1.3")
 
     def save_cfg(self):
         self.settings.update(mode=self.mode_var.get(), api_key=self.key_e.get().strip(),

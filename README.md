@@ -25,13 +25,10 @@ Honest pattern (the only legal SaaS pattern):
 | Tier | Backend | Key? | Notes |
 |------|---------|------|-------|
 | Free (default) | Pollinations `openai` pool | No | Shared, rate-limited, great for trial/demo |
-| Pro | `meta/muse-spark-1.3` via OpenRouter, or `opencode/muse-spark-1.3-contributor-free` via OpenCode Zen | Yes, yours | True Muse-class quality, you control spend |
+| Pro (Zen) | `muse-spark-1.3-contributor-free` via `https://opencode.ai/zen/v1/responses` | Yes, yours (`oc_sk_...`) | True Muse-class quality, free contributor tier |
+| Pro (alt) | `meta/muse-spark-1.3` via OpenRouter | Yes | Same pattern, other gateway |
 
-No app can bundle unlimited free Claude/Muse — free shared pool + BYOK is the $1M SaaS pattern. Get a key from OpenRouter or OpenCode Zen (free tier includes muse-spark), then:
-1. Open Nexus AI → Settings → Custom
-2. Base URL: `https://openrouter.ai/api/v1`
-3. Model: `meta/muse-spark-1.3`
-4. Paste key → Save
+No app can bundle unlimited free Claude/Muse — free shared pool + BYOK is the $1M SaaS pattern. Get a key from https://opencode.ai/auth (free tier includes muse-spark-1.3-contributor-free), then in-app: Settings → Use Zen Free → paste key → Save. Key stays in local `settings.json` (gitignored) — never commit it or bake it into a public exe. If a key was ever pasted publicly, rotate it immediately.
 
 ## 🚀 Quickstart
 

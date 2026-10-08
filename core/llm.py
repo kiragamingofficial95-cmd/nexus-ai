@@ -3,6 +3,8 @@ Optional BYOK: any OpenAI-compatible endpoint (OpenRouter, OpenCode Zen for muse
 import requests, json, urllib.parse
 
 POLLINATIONS_URL = "https://text.pollinations.ai/openai"
+ZEN_BASE = "https://opencode.ai/zen/v1"
+ZEN_MODEL_FREE = "muse-spark-1.3-contributor-free"
 
 SYSTEM = ("You are Nexus AI, a production-grade assistant like Claude. "
 "Powered by Muse Spark 1.3 class models. Be accurate, concise, helpful. "
@@ -39,6 +41,10 @@ class LLMClient:
             return r.text
 
     def _openai_compat(self, messages, max_tokens, temperature, timeout):
+        # OpenCode Zen uses OpenAI Responses API, not /chat/completions
+        if "opencode.ai/zen" in self.base_url:
+            model = self.model or ZEN_MODEL_FREE
+            return self._zen_responses(messages, model, max_tokens, timeout)
         url = self.base_url + "/chat/completions"
         model = self.model or "meta/muse-spark-1.3"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
@@ -51,3 +57,32 @@ class LLMClient:
         r.raise_for_status()
         data = r.json()
         return data["choices"][0]["message"]["content"]
+
+    def _zen_responses(self, messages, model, max_tokens, timeout):
+        """OpenCode Zen Responses API: POST {base}/responses {model, input}."""
+        base = self.base_url.rstrip("/")
+        url = base + "/responses" if not base.endswith("/responses") else base
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        # Responses API accepts OpenAI-style input array
+        inp = [{"role": m["role"], "content": m["content"]} for m in messages]
+        payload = {"model": model, "input": inp, "max_output_tokens": max_tokens}
+        r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        r.raise_for_status()
+        data = r.json()
+        # robust parse: output_text | output[].content[].text | choices
+        if isinstance(data, dict) and data.get("output_text"):
+            return data["output_text"]
+        try:
+            parts = []
+            for item in data.get("output", []):
+                for c in item.get("content", []):
+                    t = c.get("text") or c.get("output_text")
+                    if t:
+                        parts.append(t)
+            if parts:
+                return "\n".join(parts)
+        except Exception:
+            pass
+        if "choices" in data:
+            return data["choices"][0]["message"]["content"]
+        return json.dumps(data)[:4000]
