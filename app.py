@@ -16,7 +16,7 @@ HISTORY_FILE = Path("history.json")
 DIAG_FILE = Path("last_error.txt")
 
 DEFAULTS = {"mode": "free", "api_key": "", "base_url": "https://opencode.ai/zen/v1",
-            "model": "muse-spark-1.3-contributor-free", "theme": "light"}
+            "model": "muse-spark-1.3", "theme": "light"}
 
 def load_settings():
     s = dict(DEFAULTS)
@@ -400,12 +400,30 @@ class App(ctk.CTk):
                 k in text.lower() for k in ["scan", "summar", "compar", "research", "observ", "websites", "sites"])
             if agent_on and looks_like_scan and (urls or len(text) > 30):
                 self.set_status("Agent: scanning live websites…")
-                report, pages = run_scan_task(text, self.llm, progress=self.set_status)
+                try:
+                    report, pages = run_scan_task(text, self.llm, progress=self.set_status)
+                except Exception as e1:
+                    if "FreeTierError" in str(e1):
+                        self.set_status("Zen free blocked — scan continues on FREE pool…")
+                        from core.llm import LLMClient as _C
+                        report, pages = run_scan_task(text, _C(), progress=self.set_status)
+                        report = ("_Note: Zen free-tier blocked over API, scan summarized by FREE pool._\n\n" + report)
+                    else:
+                        raise
                 ok = sum(1 for p in pages if not p["error"])
                 final = f"_Fetched {ok}/{len(pages)} site(s) live._\n\n" + report
             else:
                 msgs = [{"role": m["role"], "content": m["content"]} for m in self.current["messages"][-12:]]
-                final = self.llm.chat(msgs)
+                try:
+                    final = self.llm.chat(msgs)
+                except Exception as e1:
+                    if "FreeTierError" in str(e1):
+                        self.set_status("Zen free blocked — falling back to FREE pool…")
+                        from core.llm import LLMClient as _C
+                        final = ("_Note: Zen free-tier blocked over API (FreeTierError), answered by FREE pool instead. "
+                                 "For Muse Spark over API you need credits + model muse-spark-1.3._\n\n" + _C().chat(msgs))
+                    else:
+                        raise
             self.current["messages"].append({"role": "assistant", "content": final})
             self._persist()
             dt = time.time() - t0
@@ -416,9 +434,9 @@ class App(ctk.CTk):
                 DIAG_FILE.write_text(str(e)[:2000])
             except Exception:
                 pass
-            err = (f"Request failed: {e}\n\nFix:\n1) Settings → Use Zen Free → Base https://opencode.ai/zen/v1\n"
-                   "2) Model muse-spark-1.3-contributor-free\n3) Paste fresh oc_sk key → Save → Test connection\n"
-                   "4) If 400 persists, the key/plan or prompt was rejected — see Settings → Last error.")
+            err = (f"Request failed: {e}\n\nFix:\n1) Zen paid needs credits → model muse-spark-1.3\n"
+                   "2) No credits? Settings → mode FREE → Save (Pollinations pool, no key)\n"
+                   "3) FreeTierError = free model is OpenCode-client-only, not a bug in Nexus.")
             self.after(0, lambda: (self._thinking_off(), self._msg_card("assistant", err),
                                    self.set_status("Error — see Settings → Last error")))
 
@@ -555,8 +573,8 @@ class App(ctk.CTk):
         self.diag.pack(fill="x", pady=6)
         self.diag.insert("1.0", self._diag_text())
         ctk.CTkLabel(wrap, justify="left", text_color=MUTED, font=("Segoe UI", 11), text=(
-            "Zen: Base https://opencode.ai/zen/v1 · Model muse-spark-1.3-contributor-free · key from https://opencode.ai/auth\n"
-            "400 = server rejected payload/key/plan — Test connection shows the exact server message."
+            "Zen: Base https://opencode.ai/zen/v1 · Model muse-spark-1.3 (paid, needs credits) · key from https://opencode.ai/auth\n"
+            "Free contributor models are OpenCode-client-only (FreeTierError over raw API). No credits? Use FREE mode."
         )).pack(anchor="w", pady=4)
 
     def _toggle_key(self):
@@ -573,7 +591,7 @@ class App(ctk.CTk):
     def preset_zen(self):
         self.mode_var.set("custom")
         self.url_e.delete(0, "end"); self.url_e.insert(0, "https://opencode.ai/zen/v1")
-        self.model_e.delete(0, "end"); self.model_e.insert(0, "muse-spark-1.3-contributor-free")
+        self.model_e.delete(0, "end"); self.model_e.insert(0, "muse-spark-1.3")
 
     def preset_router(self):
         self.mode_var.set("custom")

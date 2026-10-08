@@ -3,8 +3,12 @@ Optional BYOK: any OpenAI-compatible endpoint (OpenRouter, OpenCode Zen for muse
 import requests, json, urllib.parse
 
 POLLINATIONS_URL = "https://text.pollinations.ai/openai"
+# Zen routing tables (from https://opencode.ai/docs/zen)
 ZEN_BASE = "https://opencode.ai/zen/v1"
-ZEN_MODEL_FREE = "muse-spark-1.3-contributor-free"
+ZEN_MODEL_FREE = "muse-spark-1.3-contributor-free"  # OpenCode-client only (FreeTierError over raw API)
+ZEN_RESPONSES_PREFIX = ("muse-spark", "gpt-6", "gpt-5", "grok-4", "grok-build")
+ZEN_MODEL_PAID = "muse-spark-1.3"  # works over API with credits ($1.25/1M in)
+ZEN_MODEL_FREE_TRY = "space-bunny-free"  # /chat/completions free gateway model to try
 
 SYSTEM = ("You are Nexus AI, a production-grade assistant like Claude. "
 "Powered by Muse Spark 1.3 class models. Be accurate, concise, helpful. "
@@ -47,12 +51,12 @@ class LLMClient:
             if base.endswith(suffix):
                 base = base[: -len(suffix)].rstrip("/")
         self.base_url = base
-        # OpenCode Zen uses OpenAI Responses API, not /chat/completions
+        # OpenCode Zen: route by model family. /responses for Muse/GPT/Grok, /chat/completions for the rest.
         if "opencode.ai" in base:
-            model = self.model or ZEN_MODEL_FREE
-            # Zen model ids are bare (muse-spark-1.3-contributor-free), strip opencode/ prefix
-            model = model.replace("opencode/", "")
-            return self._zen_responses(messages, model, max_tokens, timeout)
+            model = (self.model or ZEN_MODEL_PAID).replace("opencode/", "")
+            if model.startswith(ZEN_RESPONSES_PREFIX):
+                return self._zen_responses(messages, model, max_tokens, timeout)
+            return self._zen_chat(messages, model, max_tokens, timeout)
         url = self.base_url + "/chat/completions"
         model = self.model or "meta/muse-spark-1.3"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
@@ -93,6 +97,11 @@ class LLMClient:
             r.raise_for_status()
         except Exception as e:
             body = (r.text or "")[:800]
+            if "FreeTierError" in body:
+                raise RuntimeError(
+                    "Zen FreeTierError: free contributor models work only inside OpenCode. "
+                    "Fix: Settings → model muse-spark-1.3 (paid, needs credits) OR mode FREE (Pollinations pool). "
+                    f"Server: {body}") from e
             raise RuntimeError(f"Zen {r.status_code}: {body}") from e
         data = r.json()
         # robust parse: output_text | output[].content[] ({type:output_text, text:str|{...}})
@@ -117,3 +126,21 @@ class LLMClient:
         if "choices" in data:
             return data["choices"][0]["message"]["content"]
         return json.dumps(data)[:4000]
+
+    def _zen_chat(self, messages, model, max_tokens, timeout):
+        """Zen OpenAI-compatible: POST {base}/chat/completions (Big Pickle, Space Bunny, DeepSeek, Kimi...)."""
+        url = self.base_url.rstrip("/") + "/chat/completions"
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
+        r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        try:
+            r.raise_for_status()
+        except Exception as e:
+            body = (r.text or "")[:800]
+            if "FreeTierError" in body:
+                raise RuntimeError(
+                    "Zen FreeTierError: that free model works only inside OpenCode. "
+                    "Fix: model muse-spark-1.3 (paid, needs credits) OR mode FREE. "
+                    f"Server: {body}") from e
+            raise RuntimeError(f"Zen {r.status_code}: {body}") from e
+        return r.json()["choices"][0]["message"]["content"]
