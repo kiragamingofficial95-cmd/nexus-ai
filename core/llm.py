@@ -41,9 +41,17 @@ class LLMClient:
             return r.text
 
     def _openai_compat(self, messages, max_tokens, temperature, timeout):
+        # Normalize: users often paste full endpoints (.../chat/completions, .../responses, .../messages)
+        base = self.base_url.strip().rstrip("/")
+        for suffix in ("/chat/completions", "/responses", "/messages"):
+            if base.endswith(suffix):
+                base = base[: -len(suffix)].rstrip("/")
+        self.base_url = base
         # OpenCode Zen uses OpenAI Responses API, not /chat/completions
-        if "opencode.ai/zen" in self.base_url:
+        if "opencode.ai" in base:
             model = self.model or ZEN_MODEL_FREE
+            # Zen model ids are bare (muse-spark-1.3-contributor-free), strip opencode/ prefix
+            model = model.replace("opencode/", "")
             return self._zen_responses(messages, model, max_tokens, timeout)
         url = self.base_url + "/chat/completions"
         model = self.model or "meta/muse-spark-1.3"
@@ -60,8 +68,11 @@ class LLMClient:
 
     def _zen_responses(self, messages, model, max_tokens, timeout):
         """OpenCode Zen Responses API: POST {base}/responses {model, input}."""
-        base = self.base_url.rstrip("/")
-        url = base + "/responses" if not base.endswith("/responses") else base
+        base = self.base_url.strip().rstrip("/")
+        for suffix in ("/chat/completions", "/responses", "/messages"):
+            if base.endswith(suffix):
+                base = base[: -len(suffix)].rstrip("/")
+        url = base + "/responses"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         # Responses API accepts OpenAI-style input array
         inp = [{"role": m["role"], "content": m["content"]} for m in messages]
